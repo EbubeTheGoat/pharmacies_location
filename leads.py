@@ -1,37 +1,24 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from typing import List
 
-from cache import get_user_cache, set_user_cache
 from database import get_db
 from logger_config import get_logger
-from model import PharmacyLead
+from model import PharmacyLead, PharmacyVisit
 from schema import PharmacyLeadCreate, PharmacyLeadOut
 
 logger = get_logger("leads")
 router = APIRouter(tags=["Pharmacy Leads"])
 
-
 @router.post("/register_leads", response_model=PharmacyLeadOut)
 def register_lead(lead: PharmacyLeadCreate, db: Session = Depends(get_db)):
     """
     Register a pharmacy lead by name and coordinates.
-    Returns the existing record if a lead with the same coordinates already exists.
-
-    Bugs fixed from original:
-      1. `UserBase.location` (class attribute access) → `lead.latitude/longitude` (instance)
-      2. `UserBase.name` (class attribute access)     → `lead.name` (instance)
-      3. `PharmacyLead(name, location)` (positional)  → keyword args, required by SQLAlchemy
+    If it exists, logs an additional PharmacyVisit and returns the existing lead.
+    If it doesn't, creates the PharmacyLead and logs the initial PharmacyVisit.
     """
-    # Round to 5 decimal places (~1m precision) so two readings a metre apart
-    # at the same pharmacy don't create duplicate records.
     lat = round(lead.latitude, 5)
     lon = round(lead.longitude, 5)
-    cache_key = f"{lat}:{lon}"
-
-    # Cache check first — avoid a DB hit for a recently seen location.
-    cached = get_user_cache(cache_key)
-    if cached:
-        return cached
 
     try:
         existing = (
@@ -41,10 +28,14 @@ def register_lead(lead: PharmacyLeadCreate, db: Session = Depends(get_db)):
         )
 
         if existing:
-            result = PharmacyLeadOut.model_validate(existing)
-            set_user_cache(cache_key, result.model_dump(mode="json"))
-            return result
+            # Register a visit for the existing pharmacy lead
+            visit = PharmacyVisit(lead_id=existing.id)
+            db.add(visit)
+            db.commit()
+            db.refresh(existing)
+            return existing
 
+        # Create new pharmacy lead
         db_lead = PharmacyLead(
             name=lead.name,
             latitude=lat,
@@ -53,12 +44,32 @@ def register_lead(lead: PharmacyLeadCreate, db: Session = Depends(get_db)):
         db.add(db_lead)
         db.commit()
         db.refresh(db_lead)
+        
+        # Log the first visit
+        visit = PharmacyVisit(lead_id=db_lead.id)
+        db.add(visit)
+        db.commit()
 
-        result = PharmacyLeadOut.model_validate(db_lead)
-        set_user_cache(cache_key, result.model_dump(mode="json"))
-        return result
+        return db_lead
 
     except Exception as e:
         db.rollback()
         logger.error(f"Error registering lead: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+
+
+@router.get("/leads", response_model=List[PharmacyLeadOut])
+def get_leads(db: Session = Depends(get_db)):
+    """
+    Retrieves all registered pharmacy leads.
+    """
+    try:
+        leads = (
+            db.query(PharmacyLead)
+            .order_by(PharmacyLead.created_at.desc())
+            .all()
+        )
+        return leads
+    except Exception as e:
+        logger.error(f"Error listing leads: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
