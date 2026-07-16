@@ -77,7 +77,6 @@ class PharmacyLeadOut(BaseModel):
     name: str
     latitude: float
     longitude: float
-    phone_number: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
