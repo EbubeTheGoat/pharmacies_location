@@ -19,11 +19,18 @@ def register_lead(lead: PharmacyLeadCreate, db: Session = Depends(get_db)):
     """
     lat = round(lead.latitude, 5)
     lon = round(lead.longitude, 5)
+    epsilon = 0.00001  # Tolerance for float comparison (~1 meter)
 
     try:
+        # Use epsilon to avoid float equality mismatch errors
         existing = (
             db.query(PharmacyLead)
-            .filter(PharmacyLead.latitude == lat, PharmacyLead.longitude == lon)
+            .filter(
+                PharmacyLead.latitude >= lat - epsilon,
+                PharmacyLead.latitude <= lat + epsilon,
+                PharmacyLead.longitude >= lon - epsilon,
+                PharmacyLead.longitude <= lon + epsilon
+            )
             .first()
         )
 
