@@ -35,8 +35,6 @@ class PharmacyLead(Base):
     name = Column(String, nullable=False)
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
-    # Changed nullable to True to prevent IntegrityError on map log creation
-    phone_number = Column(String, nullable=False) 
     created_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
