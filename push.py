@@ -157,7 +157,10 @@ def check_proximity(payload: ProximityCheckPayload, db: Session = Depends(get_db
             detail="Push subscription expired. Please re-subscribe.",
         )
 
+    nearby_names = [place.name for place, dist in within_range]
+
     return {
         "places_in_range": len(within_range),
         "notifications_sent": sent,
+        "nearby_pharmacies": nearby_names
     }
